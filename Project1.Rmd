@@ -1,0 +1,222 @@
+---
+title: "Milwaukee Bucks Shot Charts and Analysis (2011-2021)"
+author: "Zach Zimmerman"
+output: word_document
+---
+
+```{r}
+## loading different packages and installing nbastatR from github
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+devtools::install_github("abresler/nbastatR", force = TRUE)
+library(nbastatR)
+library(grid)
+library(jpeg)
+library(rjson)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+## joining 10 different years of Milwaukee Bucks shot data into one big dataset
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
+shots21 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2021)
+shots20 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2020)
+shots <- shots21 %>% full_join(shots20)
+shots19 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2019)
+shots <- shots %>% full_join(shots19)
+shots18 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2018)
+shots <- shots %>% full_join(shots18)
+shots17 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2017)
+shots <- shots %>% full_join(shots17)
+shots16 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2016)
+shots <- shots %>% full_join(shots16)
+shots15 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2015)
+shots <- shots %>% full_join(shots15)
+shots14 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2014)
+shots <- shots %>% full_join(shots14)
+shots13 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2013)
+shots <- shots %>% full_join(shots13)
+shots12 <- teams_shots(teams = "Milwaukee Bucks", seasons = 2012)
+shots <- shots %>% full_join(shots12)
+```
+
+```{r}
+## preliminary plot of shots
+library(rgdal)
+ggplot(shots, aes(x=locationX, y=locationY)) + geom_point(aes(color = isShotMade))
+
+## creating an image of a basketball court to use for the background
+courtURL <- "nba_court.jpg"
+normalizePath(courtURL)
+court <- readJPEG("nba_court.jpg")
+court <- rasterGrob(court, interpolate = TRUE, width = 1, height = 1)
+```
+
+```{r include=FALSE}
+## plotting shots onto the court image
+library(lubridate)
+library(gganimate)
+library(gifski)
+library(maps)
+library(ggthemes)
+library(png)
+BucksShots <- ggplot(shots, aes(x=locationX, y=locationY)) +
+  annotation_custom(court, -250, 250, -50, 420) +
+  geom_point(aes(color=zoneBasic, shape=typeEvent), alpha = .2) +
+  ggtitle("Milwaukee Bucks Shot Chart 2011-2021") +
+  labs(shape="Result", color="Zone") +
+  coord_fixed() +
+  xlim(250,-250) +
+  ylim(0,420) +
+  theme(line = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+BucksShots
+```
+
+The first graphic shown is an overall shot chart for every shot taken by the Bucks since 2011. The graph shows the shots year by year, and also split up into the 7 zones of an NBA court: above the break threes, threes from each corner, in the restricted area, in the paint but not in the restricted area, midrange, and shots from the backcourt. 
+
+```{r}
+## creating an animation of shots year by year
+BucksAnim <- BucksShots +
+  labs(title = "Year: {closest_state}") +
+  transition_states(yearSeason,
+                    transition_length = 2,
+                    state_length = 4)
+BucksAnim
+```
+
+* Throughout the early 2010s, the Bucks took fewer threes than they do now
+* Throughout the same time, the Bucks were taking a lot of midrange jumpers and not getting into the paint as much
+
+```{r}
+## creating a hexagon plot showing the shot distributions
+library(hexbin)
+BucksHex <- ggplot(shots, aes(x=locationX, y=locationY)) +
+  annotation_custom(court, -250, 250, -52, 418) +
+  stat_bin_hex(bins = 5, color = "gray", alpha = 0.7) +
+  scale_fill_gradientn(colours = c("yellow", "orange", "red")) +
+  guides(alpha = FALSE, size = FALSE) +
+  xlim(250, -250) +
+  ylim(-52, 418) +
+  geom_rug(alpha = 0.2) +
+  coord_fixed() +
+  ggtitle("Milwaukee Bucks Shot Chart (2011-2021)") +
+  theme(line = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+BucksHex
+```
+
+Next we see a hexagon plot showing how many total shots were taken in a certain region of the court
+
+* Overall in the paint, the Bucks have shot more from the left side of the rim than the right, and from the right side more often than directly in front of the rim
+
+* Not surprisingly, a lot of the shots taken have come from inside the paint
+
+
+```{r}
+## excluding backcourt shots
+shotData <- shots[which(!shots$zoneBasic=='Backcourt'),]
+isShotMade <- as.numeric(shotData$isShotMade)
+isShotAttempted <- as.numeric(shotData$isShotAttempted)
+
+## grouping by zone and getting field goal percentage
+shotAcc <- shotData %>%
+  group_by(zoneBasic, yearSeason) %>%
+  summarise(FGP = (sum(isShotMade)/sum(isShotAttempted))*100, MLocX = mean(locationX), MLocY = mean(locationY))
+
+ShotAccuracy <- shotAcc$FGP
+ShotLab <- paste(as.character(round(ShotAccuracy, 1)), "%", sep="")
+
+## ggplot of overall shooting percentages at each zone
+BucksAcc <- ggplot(shotAcc, aes(x=MLocX, y=MLocY)) +
+  annotation_custom(court, -250, 250, -52, 418) +
+  geom_point(aes(color = zoneBasic, alpha = 0.8), size = 8) +
+  geom_text(aes(color = zoneBasic, label = ShotLab, vjust = -1.2, size = 8)) +
+  guides(alpha = FALSE, size = FALSE) +
+  xlim(250, -250) +
+  ylim(-52, 418) +
+  coord_fixed() +
+  ggtitle("Milwaukee Bucks Shot Accuracy Chart") +
+  theme(line = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 17, lineheight = 1.2, face = "bold"))
+```
+
+The next graphic is the Bucks' shooting percentages as a team in each zone, year by year.
+
+```{r}
+## animation of Bucks shooting percentages by zone year by year
+BucksAcc +
+  labs(title = "Year: {closest_state}") +
+  transition_states(yearSeason,
+                    transition_length = 2,
+                    state_length = 10)
+```
+
+
+* The Bucks routinely shoot better from the right corner than the left corner
+
+* The Bucks also routinely shoot as least just as well from midrange than they do from the paint outside of the restricted area
+
+```{r}
+## Above and Beyond Part
+## Getting the top 10 shooters in each zone with a minimum of 50 shots in each zone
+ind <- shotData %>%
+  group_by(zoneBasic, namePlayer) %>%
+  summarise(FGP = (sum(isShotMade)/sum(isShotAttempted)) * 100, Attempts = sum(isShotAttempted)) %>%
+  arrange(-FGP) %>%
+  filter(Attempts > 50) %>%
+  slice_max(order_by = FGP, n = 10)
+ind
+```
+
+The last graphic is showing the top 10 shooters for the Bucks in each zone over the last 10 seasons.
+
+* Khris Middleton has taken the most shots in the paint outside the restricted area out of the people in the top 10 by far yet he is still in 6th.
+
+* Middleton has also taken over 2,000 more midrange shots than anyone and yet he is still 6th on that list as well.
+
+* Giannis Antetoukounmpo has taken over 4,500 shots in the restricted area and is still 2nd in FG% in that zone.
+
+* The leaders from the right corner are substantially better than from the left corner.
+
+```{r}
+## creating a plot with the FG% leaders
+indplot <- ggplot(data=ind, aes(x=Attempts, y=FGP, group=zoneBasic, color=zoneBasic)) +
+  geom_point() +
+  geom_text(aes(label = ind$namePlayer), size=2.8, hjust=.7, vjust=1, angle = 20, check_overlap = TRUE) +
+  coord_cartesian(ylim=c(20,80), xlim = c(-200,4500)) +
+  theme(axis.text.x = element_text(angle=90))
+indplot
+```
+
+```{r}
+## animation showing FG% leaders zone by zone
+indplot +
+  labs(title = "Zone :{closest_state}") +
+  transition_states(zoneBasic,
+                    transition_length = 2,
+                    state_length = 4)
+```
+
+
+The Bucks are taking more threes now than they were in the 2010s. This seems like it's consistent with how the NBA has shifted over the last 6-7 years, with Stephen Curry causing everyone to want to be able to shoot threes. The same can be said for the fact that the Bucks are also shooting less midrange jumpers and trying to get into the paint more. Everything seems like it's a three or a dunk nowadays, and for the Bucks it doesn't seem a lot different.
+
+In the paint, the Bucks shoot more from the left side than they do from the right, which is interesting assuming most people are right-hand dominant. Not surprisingly the most shots by far came from inside the paint, because that's where you're the closest. Also, it was noted that the Bucks shoot worse from the left corner compared to the right, though it seems as if they take more threes from the left corner.
+
+From midrange, the Bucks routinely shoot at least as well as they do from inside the paint outisde the restricted area. This is interesting because you are significantly closer shooting from the paint. For the leaders in field goal % by zone, Giannis was an outlier in terms of his attempts in the paint. He has over 4,500 and nobody else has more than 1,000 that are in the top 10. Similarly, Khris Middleton has taken over 2,500 midrange jumpers while nobody else in the top 10 has taken more than 300.
+
+
+
